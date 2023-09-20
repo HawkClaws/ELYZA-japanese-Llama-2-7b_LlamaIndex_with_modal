@@ -1,7 +1,8 @@
 import modal
 
 stub = modal.Stub("llama_index")
-volume_main = modal.SharedVolume().persist("llama_index")
+stub.volume = modal.Volume.persisted("llama_index_volume")
+# volume = modal.NetworkFileSystem.persisted("llama_index-volume")
 model_dir = "/content/model"
 
 
@@ -14,14 +15,14 @@ model_dir = "/content/model"
         "bitsandbytes==0.41.1",
         "sentence_transformers==2.2.2"
     ),
-    shared_volumes={model_dir: volume_main},
+    volumes={model_dir: stub.volume},
     gpu="a10g",
     timeout=6000,
     mounts=[modal.Mount.from_local_dir(
         r"./", remote_path="/root/")]
 )
 async def run_llama_index():
-
+    from datetime import datetime
     import logging
     import sys
 
@@ -32,22 +33,25 @@ async def run_llama_index():
     import torch
 
     # トークナイザーとモデルの準備
+    print(f"{str(datetime.now())} : トークナイザーとモデルの準備-AutoTokenizer")
     tokenizer = AutoTokenizer.from_pretrained(
         "elyza/ELYZA-japanese-Llama-2-7b-instruct",
-        cache_dir=model_dir
+        cache_dir=f"{model_dir}/AutoTokenizer"
     )
 
+    print(f"{str(datetime.now())} : トークナイザーとモデルの準備-AutoModelForCausalLM")
     model = AutoModelForCausalLM.from_pretrained(
         "elyza/ELYZA-japanese-Llama-2-7b-instruct",
         torch_dtype=torch.float16,
         device_map="auto",
-        cache_dir=model_dir
+        cache_dir=f"{model_dir}/AutoModelForCausalLM"
     )
 
     from transformers import pipeline
     from langchain.llms import HuggingFacePipeline
 
     # パイプラインの準備
+    print(f"{str(datetime.now())} : パイプラインの準備")
     pipe = pipeline(
         "text-generation",
         model=model,
@@ -56,6 +60,7 @@ async def run_llama_index():
     )
 
     # LLMの準備
+    print(f"{str(datetime.now())} : LLMの準備")
     llm = HuggingFacePipeline(pipeline=pipe)
 
     from langchain.embeddings import HuggingFaceEmbeddings
@@ -74,8 +79,10 @@ async def run_llama_index():
             return super().embed_query("query: " + text)
 
     # 埋め込みモデルの準備
+    print(f"{str(datetime.now())} : 埋め込みモデルの準備")
     embed_model = LangchainEmbedding(
-        HuggingFaceQueryEmbeddings(model_name="intfloat/multilingual-e5-large")
+        HuggingFaceQueryEmbeddings(
+            model_name="intfloat/multilingual-e5-large", cache_folder=f"{model_dir}/LangchainEmbedding")
     )
 
     from llama_index import ServiceContext
@@ -83,6 +90,7 @@ async def run_llama_index():
     from llama_index.node_parser import SimpleNodeParser
 
     # ノードパーサーの準備
+    print(f"{str(datetime.now())} : ノードパーサーの準備")
     text_splitter = SentenceSplitter(
         chunk_size=500,
         paragraph_separator="\n\n",
@@ -91,6 +99,7 @@ async def run_llama_index():
     node_parser = SimpleNodeParser.from_defaults(text_splitter=text_splitter)
 
     # サービスコンテキストの準備
+    print(f"{str(datetime.now())} : サービスコンテキストの準備")
     service_context = ServiceContext.from_defaults(
         llm=llm,
         embed_model=embed_model,
@@ -100,6 +109,7 @@ async def run_llama_index():
     from llama_index import SimpleDirectoryReader
 
     # ドキュメントの読み込み
+    print(f"{str(datetime.now())} : ドキュメントの読み込み")
     documents = SimpleDirectoryReader(
         input_files=["dataset.txt"]
     ).load_data()
@@ -107,6 +117,7 @@ async def run_llama_index():
     from llama_index import VectorStoreIndex
 
     # インデックスの作成
+    print(f"{str(datetime.now())} : インデックスの作成")
     index = VectorStoreIndex.from_documents(
         documents,
         service_context=service_context,
@@ -115,6 +126,7 @@ async def run_llama_index():
     from llama_index.prompts.prompts import QuestionAnswerPrompt
 
     # QAテンプレートの準備
+    print(f"{str(datetime.now())} : QAテンプレートの準備")
     qa_template = QuestionAnswerPrompt("""<s>[INST] <<SYS>>
     質問に100文字以内で答えだけを回答してください。
     <</SYS>>
@@ -124,6 +136,7 @@ async def run_llama_index():
     """)
 
     # クエリエンジンの作成
+    print(f"{str(datetime.now())} : クエリエンジンの作成")
     query_engine = index.as_query_engine(
         similarity_top_k=3,
         text_qa_template=qa_template,
@@ -143,6 +156,8 @@ async def run_llama_index():
         print(input)
         print(query_engine.query(input))
 
+    # モデルデータを永続化 TODO モデルデータダウンロード時のみにしたい
+    stub.volume.commit()
 
 @stub.local_entrypoint()
 def main():
