@@ -1,8 +1,8 @@
 import modal
 
 stub = modal.Stub("llama_index")
-stub.volume = modal.Volume.persisted("llama_index_volume")
-# volume = modal.NetworkFileSystem.persisted("llama_index-volume")
+stub.volume = modal.Volume.persisted("llama_index_volume") # Beta版だけどまぁ（Commit必要）　https://modal.com/docs/guide/volumes
+# volume = modal.NetworkFileSystem.persisted("llama_index-volume") # クソ遅い
 model_dir = "/content/model"
 
 
@@ -44,7 +44,7 @@ async def run_llama_index():
         "elyza/ELYZA-japanese-Llama-2-7b-instruct",
         torch_dtype=torch.float16,
         device_map="auto",
-        cache_dir=f"{model_dir}/AutoModelForCausalLM"
+        cache_dir=f"{model_dir}/AutoModelForCausalLM" # AutoModelForCausalLMに関してはキャッシュしないほうが早いかもしれない・・・
     )
 
     from transformers import pipeline
@@ -157,6 +157,7 @@ async def run_llama_index():
         print(query_engine.query(input))
 
     # モデルデータを永続化 TODO モデルデータダウンロード時のみにしたい
+    print("モデルデータを永続化")
     stub.volume.commit()
 
 @stub.local_entrypoint()
